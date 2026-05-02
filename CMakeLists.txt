@@ -26,12 +26,17 @@ ament_target_dependencies(safety_decision_node rclcpp std_msgs)
 add_executable(health_monitor_node src/health_monitor_node.cpp)
 ament_target_dependencies(health_monitor_node rclcpp std_msgs)
 
+# Status Display Node
+add_executable(status_display_node src/status_display_node.cpp)
+ament_target_dependencies(status_display_node rclcpp std_msgs)
+
 # Install all nodes
 install(TARGETS
   sensor_a_node
   sensor_b_node
   safety_decision_node
   health_monitor_node
+  status_display_node
   DESTINATION lib/${PROJECT_NAME}
 )
 
