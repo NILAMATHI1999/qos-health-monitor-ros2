@@ -9,6 +9,7 @@ endif()
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(std_msgs REQUIRED)
+find_package(yaml-cpp REQUIRED)
 
 # Node A
 add_executable(sensor_a_node src/sensor_a_node.cpp)
@@ -22,9 +23,14 @@ ament_target_dependencies(sensor_b_node rclcpp std_msgs)
 add_executable(safety_decision_node src/safety_decision_node.cpp)
 ament_target_dependencies(safety_decision_node rclcpp std_msgs)
 
+# Node 6 Camera
+add_executable(camera_node src/camera_node.cpp)
+ament_target_dependencies(camera_node rclcpp std_msgs)
+
 # Health Monitor Node
 add_executable(health_monitor_node src/health_monitor_node.cpp)
 ament_target_dependencies(health_monitor_node rclcpp std_msgs)
+target_link_libraries(health_monitor_node yaml-cpp)
 
 # Status Display Node
 add_executable(status_display_node src/status_display_node.cpp)
@@ -37,7 +43,14 @@ install(TARGETS
   safety_decision_node
   health_monitor_node
   status_display_node
+  camera_node
   DESTINATION lib/${PROJECT_NAME}
+)
+
+# Install config folder
+install(DIRECTORY
+  config
+  DESTINATION share/${PROJECT_NAME}
 )
 
 ament_package()

@@ -27,6 +27,12 @@ public:
     data_b_qos.liveliness(RMW_QOS_POLICY_LIVELINESS_MANUAL_BY_TOPIC);
     data_b_qos.liveliness_lease_duration(1000ms);
 
+    auto camera_qos = rclcpp::QoS(rclcpp::KeepLast(10));
+    camera_qos.reliable();
+    camera_qos.deadline(500ms);
+    camera_qos.liveliness(RMW_QOS_POLICY_LIVELINESS_MANUAL_BY_TOPIC);
+    camera_qos.liveliness_lease_duration(1000ms);
+
     auto node3_qos = rclcpp::QoS(rclcpp::KeepLast(10));
     node3_qos.reliable();
     node3_qos.deadline(200ms);
@@ -63,6 +69,21 @@ public:
         }
       };
 
+    rclcpp::SubscriptionOptions camera_options;
+    camera_options.event_callbacks.deadline_callback =
+      [this](rclcpp::QOSDeadlineRequestedInfo &)
+      {
+        camera_ok_ = false;
+      };
+
+    camera_options.event_callbacks.liveliness_callback =
+      [this](rclcpp::QOSLivelinessChangedInfo & info)
+      {
+        if (info.alive_count == 0) {
+          camera_ok_ = false;
+        }
+      };
+
     data_a_sub_ = this->create_subscription<std_msgs::msg::Float32>(
       "/data_a",
       data_a_qos,
@@ -74,6 +95,12 @@ public:
       data_b_qos,
       std::bind(&SafetyDecisionNode::data_b_callback, this, std::placeholders::_1),
       data_b_options);
+
+    camera_sub_ = this->create_subscription<std_msgs::msg::String>(
+      "/camera/object_status",
+      camera_qos,
+      std::bind(&SafetyDecisionNode::camera_callback, this, std::placeholders::_1),
+      camera_options);
 
     status_pub_ = this->create_publisher<std_msgs::msg::String>("/system_status", node3_qos);
     speed_pub_ = this->create_publisher<std_msgs::msg::Float32>("/adjusted_speed", node3_qos);
@@ -99,6 +126,12 @@ private:
     node2_ok_ = true;
   }
 
+  void camera_callback(const std_msgs::msg::String::SharedPtr msg)
+  {
+    camera_status_ = msg->data;
+    camera_ok_ = true;
+  }
+
   std::string format_float(float value)
   {
     std::ostringstream stream;
@@ -113,7 +146,7 @@ private:
     std_msgs::msg::String status_msg;
     std_msgs::msg::Float32 speed_msg;
 
-    if (!node1_ok_ || !node2_ok_)
+    if (!node1_ok_ || !node2_ok_ || !camera_ok_)
     {
       speed_msg.data = 0.0f;
       status_msg.data = "UNSAFE_STOP";
@@ -139,6 +172,7 @@ private:
 
     std::string node1_output;
     std::string node2_output;
+    std::string node6_output;
 
     if (node1_ok_)
     {
@@ -158,17 +192,28 @@ private:
       node2_output = "Node 2: FAILED UNSAFE_SPEED_FAILURE";
     }
 
+    if (camera_ok_)
+    {
+      node6_output = "Node 6: " + camera_status_;
+    }
+    else
+    {
+      node6_output = "Node 6: FAILED CAMERA_FAILURE";
+    }
+
     RCLCPP_INFO(
       this->get_logger(),
-      "%s | %s | Node 3: Adjusted speed=%s , Status=%s",
+      "%s | %s | %s | Node 3: Adjusted speed=%s , Status=%s",
       node1_output.c_str(),
       node2_output.c_str(),
+      node6_output.c_str(),
       format_float(speed_msg.data).c_str(),
       status_msg.data.c_str());
   }
 
   rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr data_a_sub_;
   rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr data_b_sub_;
+  rclcpp::Subscription<std_msgs::msg::String>::SharedPtr camera_sub_;
 
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr status_pub_;
   rclcpp::Publisher<std_msgs::msg::Float32>::SharedPtr speed_pub_;
@@ -179,8 +224,11 @@ private:
   float distance_ = 2.0f;
   float normal_speed_ = 0.5f;
 
+  std::string camera_status_ = "NO_OBSTACLE";
+
   bool node1_ok_ = false;
   bool node2_ok_ = false;
+  bool camera_ok_ = false;
 };
 
 int main(int argc, char * argv[])

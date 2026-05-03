@@ -1,9 +1,11 @@
 #include <chrono>
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "rclcpp/rclcpp.hpp"
 #include "std_msgs/msg/string.hpp"
+#include "yaml-cpp/yaml.h"
 
 using namespace std::chrono_literals;
 
@@ -15,115 +17,145 @@ public:
     health_pub_ = this->create_publisher<std_msgs::msg::String>("/health_status", 10);
     reason_pub_ = this->create_publisher<std_msgs::msg::String>("/health_reason", 10);
 
-    node1_sub_ = create_heartbeat_subscription(
-      "/node1/heartbeat", "Node 1", 250ms, 500ms, &node1_alive_);
+    this->declare_parameter<std::string>("config_file", "config/health_monitor.yaml");
 
-    node2_sub_ = create_heartbeat_subscription(
-      "/node2/heartbeat", "Node 2", 800ms, 1500ms, &node2_alive_);
+    std::string config_file;
+    this->get_parameter("config_file", config_file);
 
-    node3_sub_ = create_heartbeat_subscription(
-      "/node3/heartbeat", "Node 3", 400ms, 800ms, &node3_alive_);
+    load_config(config_file);
 
     RCLCPP_INFO(this->get_logger(), "Health Monitor node started");
   }
 
 private:
-  rclcpp::Subscription<std_msgs::msg::String>::SharedPtr create_heartbeat_subscription(
-    const std::string & topic_name,
-    const std::string & node_name,
-    std::chrono::milliseconds deadline_time,
-    std::chrono::milliseconds liveliness_time,
-    bool * alive_flag)
+  struct MonitoredNode
   {
-    auto qos = rclcpp::QoS(rclcpp::KeepLast(10));
-    qos.reliable();
-    qos.deadline(deadline_time);
-    qos.liveliness(RMW_QOS_POLICY_LIVELINESS_MANUAL_BY_TOPIC);
-    qos.liveliness_lease_duration(liveliness_time);
+    std::string name;
+    std::string heartbeat_topic;
+    std::string failure_reason;
+    int deadline_ms;
+    int liveliness_ms;
+    
+    bool alive = false;
 
-    rclcpp::SubscriptionOptions options;
+    rclcpp::Subscription<std_msgs::msg::String>::SharedPtr subscription;
+  };
 
-    options.event_callbacks.deadline_callback =
-      [this, alive_flag](rclcpp::QOSDeadlineRequestedInfo &)
-      {
-        *alive_flag = false;
-        publish_health_status();
-      };
+  void load_config(const std::string & config_file)
+  {
+    YAML::Node config = YAML::LoadFile(config_file);
 
-    options.event_callbacks.liveliness_callback =
-      [this, alive_flag](rclcpp::QOSLivelinessChangedInfo & event)
-      {
-        *alive_flag = (event.alive_count > 0);
-        publish_health_status();
-      };
+    for (const auto & node_config : config["nodes"])
+    {
+      auto monitored_node = std::make_shared<MonitoredNode>();
 
-    return this->create_subscription<std_msgs::msg::String>(
-      topic_name,
-      qos,
-      [this, alive_flag](const std_msgs::msg::String::SharedPtr)
-      {
-        *alive_flag = true;
-        publish_health_status();
-      },
-      options);
+      monitored_node->name = node_config["name"].as<std::string>();
+      monitored_node->heartbeat_topic = node_config["heartbeat_topic"].as<std::string>();
+      monitored_node->failure_reason = node_config["failure_reason"].as<std::string>();
+
+      int deadline_ms = node_config["deadline_ms"].as<int>();
+      int liveliness_ms = node_config["liveliness_ms"].as<int>();
+
+      auto qos = rclcpp::QoS(rclcpp::KeepLast(10));
+      qos.reliable();
+      qos.deadline(std::chrono::milliseconds(deadline_ms));
+      qos.liveliness(RMW_QOS_POLICY_LIVELINESS_MANUAL_BY_TOPIC);
+      qos.liveliness_lease_duration(std::chrono::milliseconds(liveliness_ms));
+
+      rclcpp::SubscriptionOptions options;
+
+      options.event_callbacks.deadline_callback =
+        [this, monitored_node](rclcpp::QOSDeadlineRequestedInfo &)
+        {
+          monitored_node->alive = false;
+          publish_health_status();
+        };
+
+      options.event_callbacks.liveliness_callback =
+        [this, monitored_node](rclcpp::QOSLivelinessChangedInfo & event)
+        {
+          monitored_node->alive = (event.alive_count > 0);
+          publish_health_status();
+        };
+
+      monitored_node->subscription =
+        this->create_subscription<std_msgs::msg::String>(
+          monitored_node->heartbeat_topic,
+          qos,
+          [this, monitored_node](const std_msgs::msg::String::SharedPtr)
+          {
+            monitored_node->alive = true;
+            publish_health_status();
+          },
+          options);
+
+      monitored_nodes_.push_back(monitored_node);
+
+      RCLCPP_INFO(
+        this->get_logger(),
+        "Monitoring %s on %s",
+        monitored_node->name.c_str(),
+        monitored_node->heartbeat_topic.c_str());
+    }
   }
 
   void publish_health_status()
-{
-  std_msgs::msg::String health_msg;
-  std_msgs::msg::String reason_msg;
+  {
+    std_msgs::msg::String health_msg;
+    std_msgs::msg::String reason_msg;
 
-  if (node1_alive_ && node2_alive_ && node3_alive_) {
-    health_msg.data = "HEALTHY";
-    reason_msg.data = "NONE";
-  } else {
-    health_msg.data = "UNHEALTHY";
+    bool all_ok = true;
     reason_msg.data = "";
 
-    if (!node1_alive_) {
-      reason_msg.data += "LIDAR_FAILURE";
+    for (const auto & node : monitored_nodes_)
+    {
+      if (!node->alive)
+      {
+        all_ok = false;
+
+        if (!reason_msg.data.empty()) {
+          reason_msg.data += ",";
+        }
+
+        reason_msg.data += node->failure_reason;
+      }
     }
 
-    if (!node2_alive_) {
-      if (!reason_msg.data.empty()) {
-        reason_msg.data += ",";
-      }
-      reason_msg.data += "SPEED_SENSOR_FAILURE";
+    if (all_ok) {
+      health_msg.data = "HEALTHY";
+      reason_msg.data = "NONE";
+    } else {
+      health_msg.data = "UNHEALTHY";
     }
 
-    if (!node3_alive_) {
-      if (!reason_msg.data.empty()) {
-        reason_msg.data += ",";
+    health_pub_->publish(health_msg);
+    reason_pub_->publish(reason_msg);
+
+    std::string node_states;
+
+    for (const auto & node : monitored_nodes_)
+    {
+      if (!node_states.empty()) {
+        node_states += " ";
       }
-      reason_msg.data += "CENTRAL_NODE_FAILURE";
+
+      node_states += node->name + "=" + (node->alive ? "OK" : "FAILED");
     }
+
+    RCLCPP_INFO_THROTTLE(
+      this->get_logger(),
+      *this->get_clock(),
+      2000,
+      "Health Status: %s | Reason=%s | %s",
+      health_msg.data.c_str(),
+      reason_msg.data.c_str(),
+      node_states.c_str());
   }
-
-  health_pub_->publish(health_msg);
-  reason_pub_->publish(reason_msg);
-
-  RCLCPP_INFO_THROTTLE(
-    this->get_logger(),
-    *this->get_clock(),
-    2000,
-    "Health Status: %s | Reason=%s | Node1=%s Node2=%s Node3=%s",
-    health_msg.data.c_str(),
-    reason_msg.data.c_str(),
-    node1_alive_ ? "OK" : "FAILED",
-    node2_alive_ ? "OK" : "FAILED",
-    node3_alive_ ? "OK" : "FAILED");
-}
 
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr health_pub_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr reason_pub_;
 
-  rclcpp::Subscription<std_msgs::msg::String>::SharedPtr node1_sub_;
-  rclcpp::Subscription<std_msgs::msg::String>::SharedPtr node2_sub_;
-  rclcpp::Subscription<std_msgs::msg::String>::SharedPtr node3_sub_;
-
-  bool node1_alive_ = false;
-  bool node2_alive_ = false;
-  bool node3_alive_ = false;
+  std::vector<std::shared_ptr<MonitoredNode>> monitored_nodes_;
 };
 
 int main(int argc, char * argv[])
