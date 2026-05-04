@@ -32,9 +32,18 @@ add_executable(health_monitor_node src/health_monitor_node.cpp)
 ament_target_dependencies(health_monitor_node rclcpp std_msgs)
 target_link_libraries(health_monitor_node yaml-cpp)
 
+# Backup Health Monitor Node
+add_executable(health_monitor_backup_node src/health_monitor_backup_node.cpp)
+ament_target_dependencies(health_monitor_backup_node rclcpp std_msgs)
+target_link_libraries(health_monitor_backup_node yaml-cpp)
+
 # Status Display Node
 add_executable(status_display_node src/status_display_node.cpp)
 ament_target_dependencies(status_display_node rclcpp std_msgs)
+
+# Node 7 Test Node
+add_executable(node7_test_node src/node7_test_node.cpp)
+ament_target_dependencies(node7_test_node rclcpp std_msgs)
 
 # Install all nodes
 install(TARGETS
@@ -42,8 +51,10 @@ install(TARGETS
   sensor_b_node
   safety_decision_node
   health_monitor_node
+  health_monitor_backup_node
   status_display_node
   camera_node
+  node7_test_node
   DESTINATION lib/${PROJECT_NAME}
 )
 

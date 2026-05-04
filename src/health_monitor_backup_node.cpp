@@ -13,10 +13,10 @@ using namespace std::chrono_literals;
 class HealthMonitorNode : public rclcpp::Node
 {
 public:
-  HealthMonitorNode() : Node("health_monitor_node")
+  HealthMonitorNode() : Node("health_monitor_backup_node")
   {
-    health_pub_ = this->create_publisher<std_msgs::msg::String>("/health_status", 10);
-    reason_pub_ = this->create_publisher<std_msgs::msg::String>("/health_reason", 10);
+    health_pub_ = this->create_publisher<std_msgs::msg::String>("/health_status_backup", 10);
+    reason_pub_ = this->create_publisher<std_msgs::msg::String>("/health_reason_backup", 10);
 
     register_sub_ = this->create_subscription<std_msgs::msg::String>(
       "/register_node",
@@ -30,7 +30,7 @@ public:
 
     load_config(config_file);
 
-    RCLCPP_INFO(this->get_logger(), "Health Monitor node started");
+    RCLCPP_INFO(this->get_logger(), "Backup Health Monitor node started");
   }
 
 private:
@@ -219,7 +219,7 @@ private:
       this->get_logger(),
       *this->get_clock(),
       2000,
-      "Health Status: %s | Reason=%s | %s",
+      "Backup Health Status: %s | Reason=%s | %s",
       health_msg.data.c_str(),
       reason_msg.data.c_str(),
       node_states.c_str());
