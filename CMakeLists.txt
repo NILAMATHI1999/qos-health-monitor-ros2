@@ -45,6 +45,18 @@ ament_target_dependencies(status_display_node rclcpp std_msgs)
 add_executable(node7_test_node src/node7_test_node.cpp)
 ament_target_dependencies(node7_test_node rclcpp std_msgs)
 
+# Node 8 deadline only
+add_executable(node8_deadline_only_node src/node8_deadline_only_node.cpp)
+ament_target_dependencies(node8_deadline_only_node rclcpp std_msgs)
+
+# Node 9 liveliness only
+add_executable(node9_liveliness_only_node src/node9_liveliness_only_node.cpp)
+ament_target_dependencies(node9_liveliness_only_node rclcpp std_msgs)
+
+# Node 10 default qos
+add_executable(node10_default_qos_node src/node10_default_qos_node.cpp)
+ament_target_dependencies(node10_default_qos_node rclcpp std_msgs)
+
 # Install all nodes
 install(TARGETS
   sensor_a_node
@@ -55,6 +67,9 @@ install(TARGETS
   status_display_node
   camera_node
   node7_test_node
+  node8_deadline_only_node
+  node9_liveliness_only_node
+  node10_default_qos_node
   DESTINATION lib/${PROJECT_NAME}
 )
 

@@ -1,24 +1,48 @@
 nodes:
   - name: Node 1
     heartbeat_topic: /node1/heartbeat
-    deadline_ms: 250
-    liveliness_ms: 500
     failure_reason: LIDAR_FAILURE
+    qos:
+      reliability: reliable
+      history: keep_last
+      depth: 10
+      durability: volatile
+      deadline_ms: 250
+      liveliness: manual_by_topic
+      liveliness_lease_ms: 500
 
   - name: Node 2
     heartbeat_topic: /node2/heartbeat
-    deadline_ms: 800
-    liveliness_ms: 1500
     failure_reason: SPEED_SENSOR_FAILURE
+    qos:
+      reliability: reliable
+      history: keep_last
+      depth: 10
+      durability: volatile
+      deadline_ms: 800
+      liveliness: manual_by_topic
+      liveliness_lease_ms: 1500
 
   - name: Node 3
     heartbeat_topic: /node3/heartbeat
-    deadline_ms: 400
-    liveliness_ms: 800
     failure_reason: CENTRAL_NODE_FAILURE
-    
+    qos:
+      reliability: reliable
+      history: keep_last
+      depth: 10
+      durability: volatile
+      deadline_ms: 400
+      liveliness: manual_by_topic
+      liveliness_lease_ms: 800
+
   - name: Camera Node
     heartbeat_topic: /node6/heartbeat
-    deadline_ms: 500
-    liveliness_ms: 1000
     failure_reason: CAMERA_NODE_FAILURE
+    qos:
+      reliability: reliable
+      history: keep_last
+      depth: 10
+      durability: volatile
+      deadline_ms: 500
+      liveliness: manual_by_topic
+      liveliness_lease_ms: 1000

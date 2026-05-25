@@ -8,8 +8,6 @@
 #include "std_msgs/msg/string.hpp"
 #include "yaml-cpp/yaml.h"
 
-using namespace std::chrono_literals;
-
 class HealthMonitorNode : public rclcpp::Node
 {
 public:
@@ -34,13 +32,35 @@ public:
   }
 
 private:
+  struct QoSConfig
+  {
+    bool use_default = true;
+
+    bool has_reliability = false;
+    std::string reliability;
+
+    bool has_history = false;
+    std::string history;
+    int depth = 0;
+
+    bool has_durability = false;
+    std::string durability;
+
+    bool has_deadline = false;
+    int deadline_ms = 0;
+
+    bool has_liveliness = false;
+    std::string liveliness;
+    int liveliness_lease_ms = 0;
+  };
+
   struct MonitoredNode
   {
     std::string name;
     std::string heartbeat_topic;
     std::string failure_reason;
-    int deadline_ms;
-    int liveliness_ms;
+
+    QoSConfig qos_config;
 
     bool alive = false;
 
@@ -56,30 +76,76 @@ private:
       std::string name = node_config["name"].as<std::string>();
       std::string heartbeat_topic = node_config["heartbeat_topic"].as<std::string>();
       std::string failure_reason = node_config["failure_reason"].as<std::string>();
-      int deadline_ms = node_config["deadline_ms"].as<int>();
-      int liveliness_ms = node_config["liveliness_ms"].as<int>();
 
-      add_monitored_node(name, heartbeat_topic, deadline_ms, liveliness_ms, failure_reason);
+      QoSConfig qos_config;
+
+      if (node_config["qos"])
+      {
+        qos_config.use_default = false;
+        YAML::Node qos_node = node_config["qos"];
+
+        if (qos_node["use_default"]) {
+          qos_config.use_default = qos_node["use_default"].as<bool>();
+        }
+
+        if (qos_node["reliability"])
+        {
+          qos_config.has_reliability = true;
+          qos_config.reliability = qos_node["reliability"].as<std::string>();
+        }
+
+        if (qos_node["history"])
+        {
+          qos_config.has_history = true;
+          qos_config.history = qos_node["history"].as<std::string>();
+        }
+
+        if (qos_node["depth"]) {
+          qos_config.depth = qos_node["depth"].as<int>();
+        }
+
+        if (qos_node["durability"])
+        {
+          qos_config.has_durability = true;
+          qos_config.durability = qos_node["durability"].as<std::string>();
+        }
+
+        if (qos_node["deadline_ms"])
+        {
+          qos_config.has_deadline = true;
+          qos_config.deadline_ms = qos_node["deadline_ms"].as<int>();
+        }
+
+        if (qos_node["liveliness"])
+        {
+          qos_config.has_liveliness = true;
+          qos_config.liveliness = qos_node["liveliness"].as<std::string>();
+        }
+
+        if (qos_node["liveliness_lease_ms"]) {
+          qos_config.liveliness_lease_ms = qos_node["liveliness_lease_ms"].as<int>();
+        }
+      }
+
+      add_monitored_node(name, heartbeat_topic, failure_reason, qos_config);
     }
   }
 
   void register_node_callback(const std_msgs::msg::String::SharedPtr msg)
   {
     std::stringstream ss(msg->data);
+
     std::string name;
     std::string heartbeat_topic;
-    std::string deadline_str;
-    std::string liveliness_str;
     std::string failure_reason;
+    std::string qos_string;
 
-    std::getline(ss, name, ',');
-    std::getline(ss, heartbeat_topic, ',');
-    std::getline(ss, deadline_str, ',');
-    std::getline(ss, liveliness_str, ',');
-    std::getline(ss, failure_reason, ',');
+    std::getline(ss, name, '|');
+    std::getline(ss, heartbeat_topic, '|');
+    std::getline(ss, failure_reason, '|');
+    std::getline(ss, qos_string, '|');
 
-    if (name.empty() || heartbeat_topic.empty() || deadline_str.empty() ||
-        liveliness_str.empty() || failure_reason.empty())
+    if (name.empty() || heartbeat_topic.empty() || failure_reason.empty())
     {
       RCLCPP_WARN(
         this->get_logger(),
@@ -88,10 +154,64 @@ private:
       return;
     }
 
-    int deadline_ms = std::stoi(deadline_str);
-    int liveliness_ms = std::stoi(liveliness_str);
+    QoSConfig qos_config;
 
-    add_monitored_node(name, heartbeat_topic, deadline_ms, liveliness_ms, failure_reason);
+    if (!qos_string.empty())
+    {
+      qos_config.use_default = false;
+
+      std::stringstream qos_stream(qos_string);
+      std::string item;
+
+      while (std::getline(qos_stream, item, ';'))
+      {
+        auto equal_pos = item.find('=');
+
+        if (equal_pos == std::string::npos) {
+          continue;
+        }
+
+        std::string key = item.substr(0, equal_pos);
+        std::string value = item.substr(equal_pos + 1);
+
+        if (key == "use_default") {
+          qos_config.use_default = (value == "true");
+        }
+        else if (key == "reliability")
+        {
+          qos_config.has_reliability = true;
+          qos_config.reliability = value;
+        }
+        else if (key == "history")
+        {
+          qos_config.has_history = true;
+          qos_config.history = value;
+        }
+        else if (key == "depth") {
+          qos_config.depth = std::stoi(value);
+        }
+        else if (key == "durability")
+        {
+          qos_config.has_durability = true;
+          qos_config.durability = value;
+        }
+        else if (key == "deadline_ms")
+        {
+          qos_config.has_deadline = true;
+          qos_config.deadline_ms = std::stoi(value);
+        }
+        else if (key == "liveliness")
+        {
+          qos_config.has_liveliness = true;
+          qos_config.liveliness = value;
+        }
+        else if (key == "liveliness_lease_ms") {
+          qos_config.liveliness_lease_ms = std::stoi(value);
+        }
+      }
+    }
+
+    add_monitored_node(name, heartbeat_topic, failure_reason, qos_config);
   }
 
   bool is_already_monitored(const std::string & heartbeat_topic)
@@ -106,12 +226,75 @@ private:
     return false;
   }
 
+  rclcpp::QoS build_qos(const QoSConfig & qos_config)
+  {
+    if (qos_config.use_default) {
+      return rclcpp::QoS(10);
+    }
+
+    int depth = 10;
+
+    if (qos_config.has_history && qos_config.depth > 0) {
+      depth = qos_config.depth;
+    }
+
+    rclcpp::QoS qos(depth);
+
+    if (qos_config.has_history)
+    {
+      if (qos_config.history == "keep_all") {
+        qos.keep_all();
+      } else if (qos_config.history == "keep_last") {
+        qos.keep_last(depth);
+      }
+    }
+
+    if (qos_config.has_reliability)
+    {
+      if (qos_config.reliability == "reliable") {
+        qos.reliable();
+      } else if (qos_config.reliability == "best_effort") {
+        qos.best_effort();
+      }
+    }
+
+    if (qos_config.has_durability)
+    {
+      if (qos_config.durability == "volatile") {
+        qos.durability_volatile();
+      } else if (qos_config.durability == "transient_local") {
+        qos.transient_local();
+      }
+    }
+
+    if (qos_config.has_deadline)
+    {
+      qos.deadline(std::chrono::milliseconds(qos_config.deadline_ms));
+    }
+
+    if (qos_config.has_liveliness)
+    {
+      if (qos_config.liveliness == "manual_by_topic") {
+        qos.liveliness(RMW_QOS_POLICY_LIVELINESS_MANUAL_BY_TOPIC);
+      } else if (qos_config.liveliness == "automatic") {
+        qos.liveliness(RMW_QOS_POLICY_LIVELINESS_AUTOMATIC);
+      }
+
+      if (qos_config.liveliness_lease_ms > 0)
+      {
+        qos.liveliness_lease_duration(
+          std::chrono::milliseconds(qos_config.liveliness_lease_ms));
+      }
+    }
+
+    return qos;
+  }
+
   void add_monitored_node(
     const std::string & name,
     const std::string & heartbeat_topic,
-    int deadline_ms,
-    int liveliness_ms,
-    const std::string & failure_reason)
+    const std::string & failure_reason,
+    const QoSConfig & qos_config)
   {
     if (is_already_monitored(heartbeat_topic))
     {
@@ -127,28 +310,44 @@ private:
     monitored_node->name = name;
     monitored_node->heartbeat_topic = heartbeat_topic;
     monitored_node->failure_reason = failure_reason;
-    monitored_node->deadline_ms = deadline_ms;
-    monitored_node->liveliness_ms = liveliness_ms;
+    monitored_node->qos_config = qos_config;
 
-    auto qos = rclcpp::QoS(rclcpp::KeepLast(10));
-    qos.reliable();
-    qos.deadline(std::chrono::milliseconds(deadline_ms));
-    qos.liveliness(RMW_QOS_POLICY_LIVELINESS_MANUAL_BY_TOPIC);
-    qos.liveliness_lease_duration(std::chrono::milliseconds(liveliness_ms));
+    auto qos = build_qos(qos_config);
 
     rclcpp::SubscriptionOptions options;
 
-    options.event_callbacks.deadline_callback =
-      [this, monitored_node](rclcpp::QOSDeadlineRequestedInfo &)
+    if (qos_config.has_deadline)
+    {
+      options.event_callbacks.deadline_callback =
+        [this, monitored_node](rclcpp::QOSDeadlineRequestedInfo &)
+        {
+          monitored_node->alive = false;
+          publish_health_status();
+        };
+    }
+
+    if (qos_config.has_liveliness)
+    {
+      options.event_callbacks.liveliness_callback =
+        [this, monitored_node](rclcpp::QOSLivelinessChangedInfo & event)
+        {
+          monitored_node->alive = (event.alive_count > 0);
+          publish_health_status();
+        };
+    }
+
+    options.event_callbacks.incompatible_qos_callback =
+      [this, monitored_node](rclcpp::QOSRequestedIncompatibleQoSInfo & event)
       {
         monitored_node->alive = false;
-        publish_health_status();
-      };
 
-    options.event_callbacks.liveliness_callback =
-      [this, monitored_node](rclcpp::QOSLivelinessChangedInfo & event)
-      {
-        monitored_node->alive = (event.alive_count > 0);
+        RCLCPP_WARN(
+          this->get_logger(),
+          "QoS incompatibility detected for %s. Total count: %d, Last policy kind: %d",
+          monitored_node->name.c_str(),
+          event.total_count,
+          event.last_policy_kind);
+
         publish_health_status();
       };
 
@@ -227,7 +426,6 @@ private:
 
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr health_pub_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr reason_pub_;
-
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr register_sub_;
 
   std::vector<std::shared_ptr<MonitoredNode>> monitored_nodes_;

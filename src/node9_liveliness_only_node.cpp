@@ -7,28 +7,27 @@
 
 using namespace std::chrono_literals;
 
-class Node7Test : public rclcpp::Node
+class Node9LivelinessOnly : public rclcpp::Node
 {
 public:
-  Node7Test() : Node("node7_test_node")
+  Node9LivelinessOnly() : Node("node9_liveliness_only_node")
   {
-    auto qos = rclcpp::QoS(rclcpp::KeepLast(10));
+    auto qos = rclcpp::QoS(10);
     qos.reliable();
-    qos.deadline(500ms);
     qos.liveliness(RMW_QOS_POLICY_LIVELINESS_MANUAL_BY_TOPIC);
     qos.liveliness_lease_duration(1000ms);
 
     heartbeat_pub_ = this->create_publisher<std_msgs::msg::String>(
-      "/node7/heartbeat", qos);
+      "/node9/heartbeat", qos);
 
     register_pub_ = this->create_publisher<std_msgs::msg::String>(
       "/register_node", 10);
 
     timer_ = this->create_wall_timer(
       500ms,
-      std::bind(&Node7Test::timer_callback, this));
+      std::bind(&Node9LivelinessOnly::timer_callback, this));
 
-    RCLCPP_INFO(this->get_logger(), "Node 7 started and sending registration");
+    RCLCPP_INFO(this->get_logger(), "Node 9 liveliness-only node started");
   }
 
 private:
@@ -39,12 +38,11 @@ private:
       std_msgs::msg::String register_msg;
 
       register_msg.data =
-        "Node 7|/node7/heartbeat|NODE7_FAILURE|"
+        "Node 9|/node9/heartbeat|NODE9_LIVELINESS_FAILURE|"
         "reliability=reliable;"
         "history=keep_last;"
         "depth=10;"
         "durability=volatile;"
-        "deadline_ms=500;"
         "liveliness=manual_by_topic;"
         "liveliness_lease_ms=1000";
 
@@ -53,7 +51,7 @@ private:
     }
 
     std_msgs::msg::String heartbeat_msg;
-    heartbeat_msg.data = "node7 alive";
+    heartbeat_msg.data = "node9 alive";
 
     heartbeat_pub_->publish(heartbeat_msg);
     heartbeat_pub_->assert_liveliness();
@@ -61,7 +59,6 @@ private:
 
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr heartbeat_pub_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr register_pub_;
-
   rclcpp::TimerBase::SharedPtr timer_;
 
   int registration_count_ = 0;
@@ -70,7 +67,7 @@ private:
 int main(int argc, char * argv[])
 {
   rclcpp::init(argc, argv);
-  rclcpp::spin(std::make_shared<Node7Test>());
+  rclcpp::spin(std::make_shared<Node9LivelinessOnly>());
   rclcpp::shutdown();
   return 0;
 }
